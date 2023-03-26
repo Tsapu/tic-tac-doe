@@ -43,12 +43,28 @@ class Participant:
     
     def start_clock_sync(self):
         # Will sync node clock to other nodes, if they are connected
+        print(" ...Starting a clock synchronization thread...")
         self.clock_thread = threading.Thread(target=sync_time, args=(self.node_port,))
         self.clock_thread.start()
-    
+
+    def elect_game_master(self):
+        print("STARTING A NEW ELECTION")
+        with grpc.insecure_channel(f"localhost:{self.node_port}") as channel:
+            stub = ttd_pb2_grpc.ttdStub(channel)
+            response = stub.StartElection(ttd_pb2.ElectionMessage(sender_id=int(self.node_port[-1:]), election_id=0))
+            if response.success:
+                print(f"Election completed successfully. Coordinator ID is {response.leader_id}")
+            else:
+                print("Election failed")
+        
     def start_game(self):
         # Step 1) Start clock sync with Berkeley
         self.start_clock_sync()
+        # Step 2) Elect a leader
+        self.elect_game_master()
+        # Step 3) Configure the game
+        # -- initialise the board
+        self.board = ttdBoard()
 
     # static method to parse commands"
     def parse_cmd(self, cmd):
@@ -83,14 +99,40 @@ class ttdServicer(ttd_pb2_grpc.ttdServicer):
         global node_clock
         timestamp = int(datetime.utcnow().timestamp() * 1000)
         node.clock = timestamp
-        print(node.clock)
+        # print(node.clock)
         return ttd_pb2.SyncResponse(server_timestamp=timestamp) 
 
     def GetTime(self, request, context):
         current_time = time.time()
         return ttd_pb2.TimeResponse(current_time=current_time)
 
-    
+    def StartElection(self, request, context):
+        node.acting_leader = False
+        process_id = int(node.node_port[-1:])
+        print(f"Received election message from process {request.sender_id} with election ID {request.election_id}")
+        # If we are higher prio in the ring, then make it known
+        if request.election_id < process_id:
+            print(f"Setting the current election ID to {process_id}")
+            request.election_id = process_id
+
+        for node_id in range(process_id+1, len(NODE_PORTS)):
+            next_node_alive = check_socket('localhost', int(NODE_PORTS[node_id]))
+            print(f"Checking if process {node_id} is alive: {next_node_alive}")
+            if next_node_alive:
+                print(f"Forwarding election message from process {process_id} to process {node_id}")
+                with grpc.insecure_channel(f'localhost:{NODE_PORTS[node_id]}') as channel:
+                    stub = ttd_pb2_grpc.ttdStub(channel)
+                    response = stub.StartElection(ttd_pb2.ElectionMessage(sender_id=node_id, election_id=request.election_id))
+                    return response
+            else:
+                continue
+        # All the upper nodes are dead, or we are the uppermost node, claim leadership
+        print("Election resolved, I am the leader #" + str(process_id))
+        result = ttd_pb2.ElectionResult()
+        result.leader_id = process_id
+        result.success = True
+        node.acting_leader = True
+        return result
 
 
 def sync_time(node_port):
@@ -134,8 +176,7 @@ if __name__ == '__main__':
     node = Participant()
     while True:
         cmd = input("> ")
-        print(node_clock)
-        print(Participant.clock)
+        # print(node.clock)
         if cmd == "quit" or cmd == "q":
             break
         node.parse_cmd(cmd)
