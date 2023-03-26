@@ -3,20 +3,9 @@ syntax = "proto3";
 service ttd {
   rpc SyncTime(SyncRequest) returns (SyncResponse) {}
   rpc StartElection(ElectionMessage) returns (ElectionResult) {}
-
-  rpc GetTime(TimeRequest) returns (TimeResponse) {}
-  rpc SetTime(TimeRequest) returns (TimeResponse) {}
+  rpc SendInfo(InfoMessage) returns (InfoResponse) {}
   rpc GetBoardState(BoardRequest) returns (BoardResponse) {}
   rpc SetSymbol (SetSymbolRequest) returns (SetSymbolResponse) {}
-}
-
-message TimeRequest {
-  double current_time = 1;
-}
-
-message TimeResponse {
-  double current_time = 1;
-  bool sync_completed = 2;
 }
 
 message ElectionMessage {
@@ -38,16 +27,23 @@ message SyncResponse {
 message BoardRequest {}
 
 message BoardResponse {
-  string timestamp = 1;
-  int32 cell_id = 2;
+  string board_state = 1;
 }
 
 message SetSymbolRequest {
   int32 player_id = 1;
   int32 cell_id = 2;
-  int32 symbol = 3;
+  string symbol = 3;
 }
 
 message SetSymbolResponse {
   bool success = 1;
+}
+
+message InfoMessage {
+  string message = 1;
+}
+
+message InfoResponse {
+  bool received = 1;
 }

@@ -24,7 +24,10 @@ class Participant:
                 print(n, "is free ...joining the game.")
                 self.node_port = n
                 self.clock = 0
-                self.acting_leader = False
+                self.acting_leader = None
+                self.player_id = None
+                self.is_leader = False
+                # self.players = []
                 # self.queue = queue.Queue()
                 self.node_listener = threading.Thread(target=self.join_game)
                 self.node_listener.start()
@@ -53,19 +56,66 @@ class Participant:
             stub = ttd_pb2_grpc.ttdStub(channel)
             response = stub.StartElection(ttd_pb2.ElectionMessage(sender_id=int(self.node_port[-1:]), election_id=0))
             if response.success:
-                print(f"Election completed successfully. Coordinator ID is {response.leader_id}")
+                return response.leader_id
             else:
                 print("Election failed")
         
-    def start_game(self):
+    def init_game(self):
         # Step 1) Start clock sync with Berkeley
         self.start_clock_sync()
         # Step 2) Elect a leader
         self.elect_game_master()
-        # Step 3) Configure the game
-        # -- initialise the board
+    
+    def start_game_as_master(self):
+        # Initialise the board
         self.board = ttdBoard()
+        # Initialise the game with other players
+        self.board.players = [{ "port": n } for n in NODE_PORTS if n != self.node_port]
+        self.board.assign_symbols()
+        time.sleep(0.5)
+        self.send_info(self.board.players[0]["port"], "Game has started, you are X!")
+        self.send_info(self.board.players[1]["port"], "Game has started, you are O!")
+        self.send_info(self.board.players[0]["port"], "Your turn!")
+        #self.game = Game(players)
+        
+        #self.open_channels()
 
+    def send_info(self, port, message):
+        with grpc.insecure_channel(f"localhost:{port}") as channel:
+            stub = ttd_pb2_grpc.ttdStub(channel)
+            response = stub.SendInfo(ttd_pb2.InfoMessage(message=message))
+            return response.received
+    
+    def set_symbol(self, symbol, cell_id):
+        with grpc.insecure_channel(f"localhost:{NODE_PORTS[self.acting_leader]}") as channel:
+            stub = ttd_pb2_grpc.ttdStub(channel)
+            response = stub.SetSymbol(ttd_pb2.SetSymbolRequest(player_id=self.player_id, symbol=symbol, cell_id=int(cell_id)))
+            if response.success:
+                print("Turn was succsessful")
+            else:
+                print("Invalid turn, cell is already filled")
+            return response.success
+
+    def list_board(self):
+        with grpc.insecure_channel(f"localhost:{NODE_PORTS[self.acting_leader]}") as channel:
+            stub = ttd_pb2_grpc.ttdStub(channel)
+            response = stub.GetBoardState(ttd_pb2.BoardRequest())
+            return response.board_state
+    
+    def reset_game(self):
+        self.acting_leader = None
+        self.player_id = None
+        self.is_leader = False
+        
+        self.SendInfo(self.board.players[0]["port"], "Game has been reset")
+        self.SendInfo(self.board.players[1]["port"], "Game has been reset")
+        self.elect_game_master()
+
+    # def open_channels(self):
+    #     player_1 = grpc.insecure_channel(f"localhost:{self.players[0]['port']}")
+    #     player_2 = grpc.insecure_channel(f"localhost:{self.players[1]['port']}")
+    #     self.channels = [player_1, player_2]
+        
     # static method to parse commands"
     def parse_cmd(self, cmd):
         if cmd == "start-game":
@@ -74,37 +124,52 @@ class Participant:
                 if not check_socket("localhost", n):
                     print("All nodes must be connected before starting the game")
                     return
-            # Start the game
-            self.start_game()
-
-
-class Game:
-    def __init__(self):
-        self.board = ttdBoard()
-        self.players = []
-        self.current_player = 0
-        self.game_over = False
-
-    def start_game(self):        
-     # Send gRPC request to show the board
-        pass
+            # Everyone connected, decide on the game master
+            self.init_game()
+        elif cmd == "list-board":
+            board_state = self.list_board()
+            print(board_state)
+        elif cmd.startswith("set-symbol") and len(cmd.split()) == 3:
+            cell_id = cmd.split(" ")[1]
+            symbol = cmd.split(" ")[2]
+            print(cell_id)
+            self.set_symbol(symbol, cell_id)
 
 class ttdServicer(ttd_pb2_grpc.ttdServicer):
 
-    # def __init__(self):
-    #     # self.node_times =
-    #     pass
+    def GetBoardState(self, request, context):
+        return ttd_pb2.BoardResponse(board_state=node.board.to_str())
+
+    def SetSymbol(self, request, context):
+        _is_set = node.board.place_symbol(request.symbol, request.cell_id, request.player_id, node.clock)
+        if _is_set:
+            print(f"Symbol {request.symbol} was set at cell {request.cell_id}")
+            # Check if the game is over
+            if node.board.check_win():
+                node.send_info(node.board.players[request.player_id]["port"], "You won!")
+                node.send_info(node.board.players[(request.player_id + 1) % 2]["port"], "You lost!")
+                node.reset_game()
+            # Maybe it's a draw
+            elif node.board.check_draw():
+                node.send_info(node.board.players[request.player_id]["port"], "Draw!")
+                node.send_info(node.board.players[(request.player_id + 1) % 2]["port"], "Draw!")
+                node.reset_game()
+            # Nope, it still continues
+            else:
+                # Switch turns
+                node.board.players[request.player_id]["turn"] = False
+                node.board.players[(request.player_id + 1) % 2]["turn"] = True
+                node.send_info(node.board.players[(request.player_id + 1) % 2]["port"], "Your turn!")
+        return ttd_pb2.SetSymbolResponse(success=_is_set)
 
     def SyncTime(self, request, context):
-        global node_clock
         timestamp = int(datetime.utcnow().timestamp() * 1000)
         node.clock = timestamp
-        # print(node.clock)
-        return ttd_pb2.SyncResponse(server_timestamp=timestamp) 
+        return ttd_pb2.SyncResponse(server_timestamp=timestamp)
 
-    def GetTime(self, request, context):
-        current_time = time.time()
-        return ttd_pb2.TimeResponse(current_time=current_time)
+    def SendInfo(self, request, context):
+        print(request.message)
+        return ttd_pb2.InfoResponse(received=True)
 
     def StartElection(self, request, context):
         node.acting_leader = False
@@ -123,6 +188,12 @@ class ttdServicer(ttd_pb2_grpc.ttdServicer):
                 with grpc.insecure_channel(f'localhost:{NODE_PORTS[node_id]}') as channel:
                     stub = ttd_pb2_grpc.ttdStub(channel)
                     response = stub.StartElection(ttd_pb2.ElectionMessage(sender_id=node_id, election_id=request.election_id))
+                    if response.success:
+                        print(f"Election completed successfully. Coordinator ID is {response.leader_id}")
+                        node.player_id = process_id
+                        node.acting_leader = response.leader_id
+                        if node_id != process_id:
+                            node.is_leader = False
                     return response
             else:
                 continue
@@ -131,7 +202,10 @@ class ttdServicer(ttd_pb2_grpc.ttdServicer):
         result = ttd_pb2.ElectionResult()
         result.leader_id = process_id
         result.success = True
-        node.acting_leader = True
+        node.is_leader = True
+        node.acting_leader = process_id
+        # START THE GAME, YEA BOI
+        node.start_game_as_master()
         return result
 
 
@@ -170,9 +244,6 @@ def sync_time(node_port):
     
 
 if __name__ == '__main__':
-    # if len(sys.argv) != 2:
-    #     print("Usage: python3 ttd.py <node_id>")
-    #     sys.exit(1)
     node = Participant()
     while True:
         cmd = input("> ")
