@@ -28,7 +28,6 @@ class Participant:
                 self.player_id = None
                 self.is_leader = False
                 # self.players = []
-                # self.queue = queue.Queue()
                 self.node_listener = threading.Thread(target=self.join_game)
                 self.node_listener.start()
                 # self.start_clock_sync()
@@ -77,8 +76,6 @@ class Participant:
         self.send_info(self.board.players[1]["port"], "Game has started, you are O!")
         self.send_info(self.board.players[0]["port"], "Your turn!")
         #self.game = Game(players)
-        
-        #self.open_channels()
 
     def send_info(self, port, message):
         with grpc.insecure_channel(f"localhost:{port}") as channel:
@@ -91,7 +88,7 @@ class Participant:
             stub = ttd_pb2_grpc.ttdStub(channel)
             response = stub.SetSymbol(ttd_pb2.SetSymbolRequest(player_id=self.player_id, symbol=symbol, cell_id=int(cell_id)))
             if response.success:
-                print("Turn was succsessful")
+                print("Turn was successful")
             else:
                 print("The cell is already occupied, or your're not the current player")
             return response.success
@@ -110,12 +107,7 @@ class Participant:
         self.send_info(self.board.players[0]["port"], "Game has been reset")
         self.send_info(self.board.players[1]["port"], "Game has been reset")
         self.board = None
-        # self.elect_game_master()
-
-    # def open_channels(self):
-    #     player_1 = grpc.insecure_channel(f"localhost:{self.players[0]['port']}")
-    #     player_2 = grpc.insecure_channel(f"localhost:{self.players[1]['port']}")
-    #     self.channels = [player_1, player_2]
+        #self.elect_game_master()
         
     # static method to parse commands"
     def parse_cmd(self, cmd):
@@ -161,9 +153,7 @@ class ttdServicer(ttd_pb2_grpc.ttdServicer):
                 node.board.players[request.player_id]["turn"] = False
                 node.board.players[(request.player_id + 1) % 2]["turn"] = True
                 node.send_info(node.board.players[(request.player_id + 1) % 2]["port"], "Your turn!")
-                return ttd_pb2.SetSymbolResponse(success=_is_set)
-        else:
-            return ttd_pb2.SetSymbolResponse(success=_is_set)
+        return ttd_pb2.SetSymbolResponse(success=_is_set)
 
     def SyncTime(self, request, context):
         timestamp = int(datetime.utcnow().timestamp() * 1000)

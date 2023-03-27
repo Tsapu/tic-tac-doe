@@ -43,7 +43,6 @@ class ttdBoard:
     
     def check_win(self):
         symbol_board = [ [self.board[i][j][0] for j in range(3)] for i in range(3) ]
-        print(symbol_board)
         if symbol_board[0][0] == symbol_board[0][1] == symbol_board[0][2] != "e":
             return True
         elif symbol_board[0][0] == symbol_board[1][0] == symbol_board[2][0] != "e":
