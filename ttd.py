@@ -93,7 +93,7 @@ class Participant:
             if response.success:
                 print("Turn was succsessful")
             else:
-                print("Invalid turn, cell is already filled")
+                print("The cell is already occupied, or your're not the current player")
             return response.success
 
     def list_board(self):
@@ -107,9 +107,10 @@ class Participant:
         self.player_id = None
         self.is_leader = False
         
-        self.SendInfo(self.board.players[0]["port"], "Game has been reset")
-        self.SendInfo(self.board.players[1]["port"], "Game has been reset")
-        self.elect_game_master()
+        self.send_info(self.board.players[0]["port"], "Game has been reset")
+        self.send_info(self.board.players[1]["port"], "Game has been reset")
+        self.board = None
+        # self.elect_game_master()
 
     # def open_channels(self):
     #     player_1 = grpc.insecure_channel(f"localhost:{self.players[0]['port']}")
@@ -160,7 +161,9 @@ class ttdServicer(ttd_pb2_grpc.ttdServicer):
                 node.board.players[request.player_id]["turn"] = False
                 node.board.players[(request.player_id + 1) % 2]["turn"] = True
                 node.send_info(node.board.players[(request.player_id + 1) % 2]["port"], "Your turn!")
-        return ttd_pb2.SetSymbolResponse(success=_is_set)
+                return ttd_pb2.SetSymbolResponse(success=_is_set)
+        else:
+            return ttd_pb2.SetSymbolResponse(success=_is_set)
 
     def SyncTime(self, request, context):
         timestamp = int(datetime.utcnow().timestamp() * 1000)

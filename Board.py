@@ -29,8 +29,8 @@ class ttdBoard:
         if symbol != "X" and symbol != "O":
             print("Error: symbol received is not X or O")
             return False
-        row = cell // 3
-        column = (cell % 3) - 1
+        row = (cell - 1) // 3
+        column = (cell - 1) % 3
         try:
             if self.board[row][column] != "empty":
                 print("Error: cell received is not empty")
@@ -42,7 +42,28 @@ class ttdBoard:
             return False
     
     def check_win(self):
+        symbol_board = [ [self.board[i][j][0] for j in range(3)] for i in range(3) ]
+        print(symbol_board)
+        if symbol_board[0][0] == symbol_board[0][1] == symbol_board[0][2] != "e":
+            return True
+        elif symbol_board[0][0] == symbol_board[1][0] == symbol_board[2][0] != "e":
+            return True
+        elif symbol_board[0][0] == symbol_board[1][1] == symbol_board[2][2] != "e":
+            return True
+        elif symbol_board[0][1] == symbol_board[1][1] == symbol_board[2][1] != "e":
+            return True
+        elif symbol_board[2][0] == symbol_board[2][1] == symbol_board[2][2] != "e":
+            return True
+        elif symbol_board[0][2] == symbol_board[1][2] == symbol_board[2][2] != "e":
+            return True
+        elif symbol_board[0][2] == symbol_board[1][1] == symbol_board[2][0] != "e":
+            return True
+        elif symbol_board[1][0] == symbol_board[1][1] == symbol_board[1][2] != "e":
+            return True
         return False
 
     def check_draw(self):
+        flatten = [item for sublist in self.board for item in sublist]
+        if "empty" not in flatten:
+            return True
         return False
